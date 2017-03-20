@@ -247,6 +247,12 @@ function fileDatesEqual(a: Date, b: Date) {
   return a.getTime() === b.getTime();
 }
 
+const ffi = require('ffi');
+
+const k32 = ffi.Library("kernel32", {
+  "CopyFileW": ["int", ["string", "string", "int"]]
+});
+
 export async function copyBulk(
   queue: CopyQueue,
   _events?: {
@@ -268,6 +274,11 @@ export async function copyBulk(
 
   const fileActions: Array<CopyFileAction> = (actions.filter((action) => action.type === 'file'): any);
   await promise.queue(fileActions, (data): Promise<void> => new Promise((resolve, reject) => {
+    k32.CopyFileW(data.src, data.dest, 0);
+    events.onProgress(data.dest);
+    resolve();
+    return;
+
     if (fs.existsSync(data.dest)) {
       const srcStat = fs.lstatSync(data.src);
       const destStat = fs.lstatSync(data.dest);
