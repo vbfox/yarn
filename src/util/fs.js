@@ -7,6 +7,7 @@ import map from './map.js';
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 export const lockQueue = new BlockingQueue('fs lock');
 
@@ -235,6 +236,17 @@ export function copy(src: string, dest: string): Promise<void> {
   return copyBulk([{src, dest}]);
 }
 
+function fileDatesEqual(a: Date, b: Date) {
+  if (os.platform() === "win32") {
+    // Avoid https://github.com/nodejs/node/issues/2069
+    const aTime = Math.floor(a.getTime() / 1000);
+    const bTime = Math.floor(b.getTime() / 1000);
+    return aTime === bTime;
+  }
+
+  return a.getTime() === b.getTime();
+}
+
 export async function copyBulk(
   queue: CopyQueue,
   _events?: {
@@ -256,6 +268,16 @@ export async function copyBulk(
 
   const fileActions: Array<CopyFileAction> = (actions.filter((action) => action.type === 'file'): any);
   await promise.queue(fileActions, (data): Promise<void> => new Promise((resolve, reject) => {
+    if (fs.existsSync(data.dest)) {
+      const srcStat = fs.lstatSync(data.src);
+      const destStat = fs.lstatSync(data.dest);
+      if (srcStat.size === destStat.size && fileDatesEqual(srcStat.mtime, destStat.mtime)) {
+        events.onProgress(data.dest);
+        resolve();
+        return;
+      }
+    }
+
     const readStream = fs.createReadStream(data.src);
     const writeStream = fs.createWriteStream(data.dest, {mode: data.mode});
 
